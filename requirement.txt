@@ -1,0 +1,29 @@
+# Data processing
+pandas
+numpy
+python-dateutil
+
+# Dataset / file handling
+kagglehub
+tqdm
+
+# Analysis / notebook support
+jupyter
+ipykernel
+matplotlib
+
+# LLM API clients
+openai
+google-genai
+
+# Environment variables / config
+python-dotenv
+pyyaml
+
+# Evaluation / text matching
+scikit-learn
+rapidfuzz
+
+# Optional: validation and structured data
+pydantic
+
