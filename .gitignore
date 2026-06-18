@@ -1,1 +1,34 @@
+# Python/runtime artifacts
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ipynb_checkpoints/
+
+# Local environments/secrets
+.env
+.venv/
+venv/
+
+# Full/raw/generated datasets.
+# Keep dataset_sample/ and dataset_counter_sample/ versionable.
 raw_data/
+dataset*/
+!dataset_sample/
+!dataset_sample/**
+!dataset_counter_sample/
+!dataset_counter_sample/**
+
+# Generated question data.
+# Keep raw_questions/ and question_template/ versionable.
+questions/
+question_counter/
+
+# Experiment outputs, evaluations, and reports
+results/
+counter_results/
+evaluation/
+counter_evaluation/
+*_results/
+*_evaluation/
+*evaluation_report*.md
+evaluation_*_report*.md

@@ -1,0 +1,13 @@
+country_id,country_name,country_code,confederation,capital_city,continent
+22,Belgium,BE1,asien,Djibouti,Asia
+59,Denmark,DK1,asien,Sucre,Asia
+76,France,FR1,asien,Tokyo,Asia
+86,Greece,GR1,asien,Montevideo,Asia
+117,Kosovo,KO1,asien,Bratislava,Asia
+153,Netherlands,NL1,asien,Bangui,Asia
+164,Norway,NO1,asien,Santiago,Asia
+166,Pakistan,,,Bishkek,Africa
+176,Portugal,PO1,asien,Rabat,Asia
+182,Russia,RU1,asien,Nairobi,Africa
+209,Spain,ES1,asien,Libreville,Asia
+230,Türkiye,TR1,asien,Dublin,Africa

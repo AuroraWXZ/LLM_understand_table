@@ -1,0 +1,50 @@
+# Scope 3 
+# transfers + clubs
+transfers.player_name: Abdoulay Diaby, transfers.transfer_season: 24/25, countries.country_name: Türkiye
+
+
+# transfers + clubs + countries
+transfers.player_name: Abdoulay Diaby,countries.continent: Asia
+
+
+
+# game_events + players + clubs + countries
+game_events.game_id: 4126775, game_events.type: Substitutions, countries.continent: Europe, countries.capital_city: Paris
+
+
+# game_events + players + clubs
+game_events.game_id: 4126775, game_events.type: Substitutions, countries.continent: Europe, countries.country_name: France
+
+# Scope 4 
+# transfers + clubs
+target_date: 2024-05-07, transfers.player_name: Abdoulay Diaby, countries.country_name: France, clubs.stadium_seats: 13797
+
+# transfers + clubs + countries
+target_date: 2024-05-07, transfers.player_name: Abdoulay Diaby, countries.continent: Europe, countries.confederation: europa, countries.capital_city: Paris
+
+
+# transfers + clubs + competitions
+target_date: 2024-05-07, transfers.player_name: Abdoulay Diaby
+
+
+
+
+# transfers + clubs + players + countries
+target_date: 2024-05-07, transfers.player_name: Abdoulay Diaby
+
+
+
+# transfers + clubs
+transfers.player_name: Abdoulay Diaby, transfers.transfer_date: 2024-07-01
+
+
+# transfers + appearance + players
+transfers.player_name: Abdoulay Diaby, transfers.transfer_date: 2024-07-01, transfers.from_club_name: Pendikspor, transfers.to_club_name: Al-Batin
+
+
+# transfers + appearance + competitions
+transfers.player_name: Abdoulay Diaby, transfers.transfer_date: 2024-07-01,  transfers.to_club_name: Al-Batin
+
+
+# transfers
+transfers.player_name: Abdoulay Diaby, transfers.transfer_date: 2024-07-01,  transfers.to_club_name: Al-Batin, player_name_2: Ahmed Ildız

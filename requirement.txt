@@ -15,6 +15,9 @@ matplotlib
 # LLM API clients
 openai
 google-genai
+torch
+transformers
+accelerate
 
 # Environment variables / config
 python-dotenv

@@ -1,0 +1,8 @@
+country_id,country_name,country_code,confederation,capital_city,continent
+22,Belgium,BE1,europa,Brussels,Europe
+76,France,FR1,europa,Paris,Europe
+86,Greece,GR1,europa,Athens,Europe
+133,Mali,,,Bamako,Africa
+176,Portugal,PO1,europa,Lisbon,Europe
+209,Spain,ES1,europa,Madrid,Europe
+230,Türkiye,TR1,europa,Ankara,Asia

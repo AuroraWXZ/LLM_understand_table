@@ -1,0 +1,44 @@
+club_id,club_code,name,domestic_competition_id,country_name,stadium_name,stadium_seats
+10484,kasimpasa,Kasımpaşa A.Ş.,GR1,Greece,Jeju World Cup Stadium,13797
+1082,losc-lille,Lille Olympique Sporting Club,RU1,Russia,Omladinski stadion,50186
+110302,avs-futebol-sad,AVS Futebol SAD,DK1,Denmark,Estádio do Bonfim,6230
+11282,alanyaspor,Alanyaspor,GR1,Greece,Estádio de São Miguel,9727
+114,besiktas-istanbul,Beşiktaş Jimnastik Kulübü,GR1,Greece,Estadio de la Independencia,42684
+120,kocaelispor,Kocaelispor Kulübü,GR1,Greece,Mount Smart Stadium,34829
+126,caykur-rizespor,Çaykur Rizespor Kulübü,GR1,Greece,Stadio Komotinis OPAP,14879
+141,galatasaray-istanbul,Galatasaray Spor Kulübü,GR1,Greece,Bank of America Stadium,53978
+1467,goztepe,Göztepe Sportif Yatırımlar A.Ş.,GR1,Greece,Stade Auguste-Delaune,23376
+152,samsunspor,Samsunspor,GR1,Greece,Bryne Stadion,34303
+2282,fc-brugge,Club Brugge Koninklijke Voetbalvereniging,NO1,Norway,Kras Stadion,29062
+2293,konyaspor,Konyaspor,GR1,Greece,Machida GION Stadium,41600
+2381,sivasspor,Sivasspor,GR1,Greece,Gillette Stadium,27817
+2420,vitoria-guimaraes-sc,Vitória Sport Clube,DK1,Denmark,Sparebanken Sør Arena,30029
+2423,cd-santa-clara,Clube Desportivo Santa Clara,DK1,Denmark,Estádio Marcolino de Castro,12500
+2424,gil-vicente-fc,Gil Vicente Futebol Clube,DK1,Denmark,Roazhon Park,12046
+2425,rio-ave-fc,Rio Ave Futebol Clube,DK1,Denmark,Estádio do Marítimo,5300
+2503,boavista-porto-fc,Boavista FC,DK1,Denmark,Carlo Castellani,28263
+2832,gaziantep-fk,Gaziantep Futbol Kulübü A.Ş.,GR1,Greece,Jan Breydelstadion,30320
+29228,royal-excel-mouscron,Royal Excel Mouscron (-2022),NO1,Norway,Fountain of Youth Stadium,10830
+294,benfica-lissabon,Sport Lisboa e Benfica,DK1,Denmark,Prince Hathloul bin Abdulaziz Sports City Stadium,68100
+3205,kayserispor,Kayserispor Kulübü,GR1,Greece,Estádio Municipal Eng.º Manuel Branco Teixeira,31856
+3209,pendikspor,Pendikspor,GR1,Greece,Guldfågeln Arena,4105
+336,sporting-lissabon,Sporting Clube de Portugal,DK1,Denmark,Střelnice,52095
+36,fenerbahce-istanbul,Fenerbahçe Spor Kulübü,GR1,Greece,Osmanlı Stadı,47430
+3709,fc-getafe,Getafe Club de Fútbol S. A. D. Team Dubai,PO1,Portugal,IAI Stadium Nihondaira,16800
+3840,adana-demirspor,Adana Demirspor,GR1,Greece,The Hawthorns,30960
+4294,sc-farense,SC Farense,DK1,Denmark,Estádio Major Antônio Couto Pereira,7000
+449,trabzonspor,Trabzonspor Kulübü,GR1,Greece,Lerkendal Stadion,41000
+553,ionikos-nikeas,Ionikos Nikeas,NL1,Netherlands,AMEX Stadium,5500
+58,rsc-anderlecht,Royal Sporting Club Anderlecht,NO1,Norway,Deutsche Bank Park,21900
+589,antalyaspor,Antalyaspor,GR1,Greece,Cegeka Arena,29307
+6646,fatih-karagumruk,Fatih Karagümrük Sportif Faaliyetler San. Tic. A.Ş.,GR1,Greece,Fukuda Denshi Arena,77563
+6890,istanbul-basaksehir-fk,İstanbul Başakşehir Futbol Kulübü,GR1,Greece,DW Stadium,17067
+7160,eyupspor,Eyüp Spor Kulübü,GR1,Greece,Jeju World Cup Stadium,13797
+720,fc-porto,Futebol Clube do Porto,DK1,Denmark,Villa Park,50033
+7775,hatayspor,Hatayspor,GR1,Greece,Generali Arena,9800
+8024,fc-arouca,Futebol Clube de Arouca,DK1,Denmark,Armando Picchi,5000
+820,genclerbirligi-ankara,Gençlerbirliği Spor Kulübü,GR1,Greece,Artemio Franchi,20000
+868,mke-ankaragucu,MKE Ankaragücü,GR1,Greece,Artemio Franchi,20672
+924,istanbulspor,Istanbulspor,GR1,Greece,Dick's Sporting Goods Park,4274
+979,moreirense-fc,Moreirense Futebol Clube,DK1,Denmark,Heinz-von-Heiden-Arena,6150
+982,cd-nacional,Clube Desportivo Nacional,DK1,Denmark,Jotun Arena,5200

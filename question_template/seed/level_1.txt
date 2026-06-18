@@ -1,0 +1,8 @@
+# players
+player_id: 148396
+
+# countries
+country_id: 22
+
+# clubs
+club_id: 10484

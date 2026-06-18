@@ -1,0 +1,70 @@
+# players + countries
+players.player_id: 148396
+
+
+
+# clubs + countries
+clubs.club_id: 10484
+
+
+
+# clubs + competitions
+clubs.club_id: 10484
+
+
+
+# clubs + competitions + countries
+clubs.club_id: 10484, countries.country_id: 22
+
+
+# appearance + players
+appearance.appearance_id: 2469872_148396
+
+
+
+# appearance + players + countries
+appearance.appearance_id: 2469872_148396
+
+
+
+# appearance + clubs
+appearance.appearance_id: 2469872_148396
+
+
+# games + clubs
+games.game_id: 4126775
+
+
+
+# games + clubs + countries
+games.game_id: 4126775
+
+
+# games + competitions + countries
+games.game_id: 4126775, countries.country_id: 22
+
+
+# game_events + clubs
+game_events.game_event_id: 4126775
+
+
+
+# game_events + clubs + countries
+game_events.game_event_id: 4126775
+
+
+
+# game_events + players
+game_events.game_event_id: 4126775
+
+# appearance + clubs + competitions + countries
+appearance.appearance_id: 2469872_148396
+
+
+# games + clubs + competitions + countries
+games.game_id: 4126775
+
+
+# game_events + clubs + competitions + countries
+game_events.game_event_id: 4126775
+

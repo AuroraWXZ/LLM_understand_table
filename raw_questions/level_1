@@ -1,0 +1,78 @@
+# players
+
+What country was {players.name} born in? (country_of_birth)
+What city was {players.name} born in? (city_of_birth)
+What country does {players.name} have citizenship from? (country_of_citizenship)
+What is {players.name}'s date of birth? (date_of_birth)
+Which foot does {players.name} prefer? (foot)
+What is {players.name}'s height in centimeters? (height_in_cm)
+
+Was {players.name} born in {country_of_birth}? (country_of_birth)
+Was {players.name} born in {city_of_birth}? (city_of_birth)
+Is {players.name}'s citizenship listed as {country_of_citizenship}? (country_of_citizenship)
+Is {players.name}'s preferred foot {foot}? (foot)
+Is {players.name} right-footed? (foot)
+Is {players.name} left-footed? (foot)
+
+What year was {players.name} born in? (date_of_birth)
+What month was {players.name} born in? (date_of_birth)
+What day of the month was {players.name} born on? (date_of_birth)
+How old was {players.name} on 2025-12-31? (date_of_birth)
+Was {players.name} born before 2000? (date_of_birth)
+Was {players.name} born in or after 2000? (date_of_birth)
+Was {players.name} born before 1995? (date_of_birth)
+Was {players.name} born in or after 1995? (date_of_birth)
+Was {players.name} born in the 1990s? (date_of_birth)
+Was {players.name} born in the 2000s? (date_of_birth)
+Was {players.name} born in January? (date_of_birth)
+Was {players.name} born in June? (date_of_birth)
+Was {players.name} born in December? (date_of_birth)
+
+Is {players.name} at least 180 cm tall? (height_in_cm)
+Is {players.name} shorter than 175 cm? (height_in_cm)
+Is {players.name} taller than 185 cm? (height_in_cm)
+Is {players.name} at least 190 cm tall? (height_in_cm)
+Is {players.name} shorter than 170 cm? (height_in_cm)
+Is {players.name}'s height exactly {height_in_cm} cm? (height_in_cm)
+
+# countries
+
+What is the capital of {countries.country_name}? (capital_city)
+What continent is {countries.country_name} in? (continent)
+What confederation is listed for {countries.country_name}? (confederation)
+
+Is {countries.country_name} in Europe? (continent)
+Is {countries.country_name} in Asia? (continent)
+Is {countries.country_name} in Africa? (continent)
+Is {countries.country_name} in North America? (continent)
+Is {countries.country_name} in South America? (continent)
+Is {countries.country_name} in Oceania? (continent)
+
+Is {countries.country_name}'s confederation listed as europa? (confederation)
+Is {countries.country_name}'s confederation listed as asien? (confederation)
+Is {countries.country_name}'s confederation listed as afrika? (confederation)
+Is {countries.country_name}'s confederation listed as amerika? (confederation)
+Is {countries.country_name}'s confederation unlisted? (confederation)
+Is {countries.country_name}'s confederation listed? (confederation)
+
+Is the capital of {countries.country_name} {capital_city}? (capital_city)
+Is {countries.country_name}'s continent listed as {continent}? (continent)
+Is {countries.country_name}'s confederation listed as {confederation}? (confederation)
+
+# clubs
+
+What country is {clubs.name} based in? (country_name)
+What stadium does {clubs.name} play in? (stadium_name)
+What domestic competition is {clubs.name} associated with? (domestic_competition_id)
+
+Is {clubs.name} based in {country_name}? (country_name)
+Is {clubs.name}'s stadium {stadium_name}? (stadium_name)
+Is {clubs.name} associated with {domestic_competition_id}? (domestic_competition_id)
+
+Which country is listed for {clubs.name}? (country_name)
+Which stadium is listed for {clubs.name}? (stadium_name)
+Which domestic competition ID is listed for {clubs.name}? (domestic_competition_id)
+
+Does {clubs.name} play at {stadium_name}? (stadium_name)
+Is the listed country for {clubs.name} {country_name}? (country_name)
+Is the listed domestic competition for {clubs.name} {domestic_competition_id}? (domestic_competition_id)
