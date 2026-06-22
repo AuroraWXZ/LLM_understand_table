@@ -304,6 +304,28 @@ def _field_not_equals(attribute: str, expected: str) -> Callable[[dict[str, str]
     return lambda row: _yes_no(not _values_match(row[attribute], expected))
 
 
+def _explanation_value(value: str) -> str:
+    return value if value != "" else "NULL"
+
+
+def _single_row_explanation(
+    table: str,
+    row: dict[str, str],
+    answer_attribute: str,
+    expected_placeholder: str | None,
+    fill_values: dict[str, str],
+) -> str:
+    parts = [
+        f"{table}.{answer_attribute} is {_explanation_value(row[answer_attribute])}"
+    ]
+    if expected_placeholder is not None:
+        parts.append(
+            f"{expected_placeholder} is "
+            f"{_explanation_value(fill_values[expected_placeholder])}"
+        )
+    return ". ".join(parts) + "."
+
+
 def _single_row_question(
     context: Level1Context,
     template_id: int,
@@ -327,10 +349,18 @@ def _single_row_question(
         answer = str(answer_func(row))
     else:
         raise ValueError(f"Template {template_id} has no answer function")
+    explanation = _single_row_explanation(
+        table,
+        row,
+        answer_attribute,
+        expected_placeholder,
+        fill_values,
+    )
     return {
         "template_question_id": template_id,
         "question": _fill_template(template["question"], fill_values),
         "answer": answer,
+        "explanation": explanation,
         "ground_truth": {
             "rows": [
                 {
@@ -1102,7 +1132,7 @@ def generate_level_1_questions(
             raise KeyError(f"No level 1 generator function for template {template_id}")
         for seed in seeds_by_table[table]:
             record = QUESTION_FUNCTIONS[template_id](context, seed)
-            records.append({"question_id": len(records), **record})
+            records.append({"question_id": len(records), "level": "level_1", **record})
     return records
 
 

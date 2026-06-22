@@ -166,23 +166,40 @@ def apply_column_chain_swap(
     return changed
 
 
+def apply_column_tuple_chain_swap(
+    rows: list[dict[str, str]],
+    columns: Sequence[str],
+    rng: random.Random,
+    row_indices: Iterable[int] | None = None,
+) -> dict[str, int]:
+    """Chain-swap aligned column bundles and return changed cells by column."""
+    indices = list(range(len(rows))) if row_indices is None else list(row_indices)
+    values = (
+        tuple(rows[index].get(column, "") for column in columns)
+        for index in indices
+    )
+    mapping = build_chain_mapping(values, rng)
+    changed_counts = {column: 0 for column in columns}
+
+    for index in indices:
+        old_values = tuple(rows[index].get(column, "") for column in columns)
+        if old_values not in mapping:
+            continue
+        new_values = mapping[old_values]
+        for column, old_value, new_value in zip(columns, old_values, new_values):
+            rows[index][column] = new_value
+            changed_counts[column] += int(new_value != old_value)
+
+    return changed_counts
+
+
 def apply_pair_chain_swap(
     rows: list[dict[str, str]],
     columns: tuple[str, str],
     rng: random.Random,
 ) -> int:
     """Chain-swap an aligned pair of columns and return changed cells."""
-    values = ((row.get(columns[0], ""), row.get(columns[1], "")) for row in rows)
-    mapping = build_chain_mapping(values, rng)
-    changed = 0
-    for row in rows:
-        old_pair = (row.get(columns[0], ""), row.get(columns[1], ""))
-        if old_pair not in mapping:
-            continue
-        new_pair = mapping[old_pair]
-        row[columns[0]], row[columns[1]] = new_pair
-        changed += int(new_pair[0] != old_pair[0]) + int(new_pair[1] != old_pair[1])
-    return changed
+    return sum(apply_column_tuple_chain_swap(rows, columns, rng).values())
 
 
 def signed_delta(rng: random.Random, max_abs_delta: int) -> int:
@@ -252,44 +269,35 @@ def modify_countries(
     fieldnames: Sequence[str],
     rng: random.Random,
 ) -> dict[str, int]:
-    """Modify selected country attributes."""
+    """Modify selected country attributes as coherent row-level bundles."""
     require_columns(fieldnames, COUNTRY_REQUIRED_COLUMNS, "countries")
-    confederation_indices = [
+    swappable_indices = [
         index
         for index, row in enumerate(rows)
         if row.get("confederation", "").strip().casefold()
         not in {"", NULL_VALUE.casefold()}
+        and row.get("capital_city", "").strip()
+        and row.get("continent", "").strip()
     ]
+    changed_counts = apply_column_tuple_chain_swap(
+        rows,
+        ("confederation", "capital_city", "continent"),
+        rng,
+        swappable_indices,
+    )
     return {
-        "confederation_cells": apply_column_chain_swap(
-            rows,
-            "confederation",
-            rng,
-            confederation_indices,
-        ),
-        "capital_city_cells": apply_column_chain_swap(rows, "capital_city", rng),
-        "continent_cells": apply_column_chain_swap(rows, "continent", rng),
+        "confederation_cells": changed_counts["confederation"],
+        "capital_city_cells": changed_counts["capital_city"],
+        "continent_cells": changed_counts["continent"],
     }
-
-
-def build_capital_to_country(countries: Sequence[dict[str, str]]) -> dict[str, str]:
-    """Build a capital-city lookup after country table modification."""
-    lookup: dict[str, str] = {}
-    for country in countries:
-        capital_city = country.get("capital_city", "").strip()
-        country_name = country.get("country_name", "").strip()
-        if capital_city and country_name and capital_city not in lookup:
-            lookup[capital_city] = country_name
-    return lookup
 
 
 def modify_players(
     rows: list[dict[str, str]],
     fieldnames: Sequence[str],
-    countries: Sequence[dict[str, str]],
     rng: random.Random,
 ) -> dict[str, int]:
-    """Modify selected player attributes using the already-modified countries."""
+    """Modify selected player attributes while keeping birth context aligned."""
     require_columns(fieldnames, PLAYER_REQUIRED_COLUMNS, "players")
 
     changed_counts = {
@@ -301,26 +309,13 @@ def modify_players(
         "height_in_cm_cells": 0,
     }
 
-    capital_to_country = build_capital_to_country(countries)
-    non_capital_birth_indices: list[int] = []
-
-    for index, row in enumerate(rows):
-        city_of_birth = row.get("city_of_birth", "").strip()
-        matching_country = capital_to_country.get(city_of_birth)
-        if matching_country:
-            old_country = row.get("country_of_birth", "")
-            row["country_of_birth"] = matching_country
-            changed_counts["country_of_birth_cells"] += int(matching_country != old_country)
-        else:
-            non_capital_birth_indices.append(index)
-
-    changed_counts["country_of_birth_cells"] += apply_column_chain_swap(
+    birth_context_counts = apply_column_tuple_chain_swap(
         rows,
-        "country_of_birth",
+        ("city_of_birth", "country_of_birth"),
         rng,
-        non_capital_birth_indices,
     )
-    changed_counts["city_of_birth_cells"] = apply_column_chain_swap(rows, "city_of_birth", rng)
+    changed_counts["city_of_birth_cells"] = birth_context_counts["city_of_birth"]
+    changed_counts["country_of_birth_cells"] = birth_context_counts["country_of_birth"]
     changed_counts["country_of_citizenship_cells"] = apply_column_chain_swap(
         rows,
         "country_of_citizenship",
@@ -393,11 +388,8 @@ def generate_counterfacts(input_dir: Path, output_dir: Path, seed: int) -> dict[
         summary["clubs"] = modify_clubs(rows, fieldnames, rng)
 
     if "players.csv" in loaded_tables:
-        if "countries.csv" not in loaded_tables:
-            raise FileNotFoundError("players.csv modification requires countries.csv")
         fieldnames, rows = loaded_tables["players.csv"]
-        _, countries = loaded_tables["countries.csv"]
-        summary["players"] = modify_players(rows, fieldnames, countries, rng)
+        summary["players"] = modify_players(rows, fieldnames, rng)
 
     for filename, (fieldnames, rows) in loaded_tables.items():
         write_csv(output_dir / filename, fieldnames, rows)

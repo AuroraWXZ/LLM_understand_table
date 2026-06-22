@@ -20,7 +20,8 @@ dataset*/
 !dataset_counter_sample/**
 
 # Generated question data.
-# Keep raw_questions/ and question_template/ versionable.
+# Keep question_template/ versionable.
+raw_questions/
 questions/
 question_counter/
 
@@ -29,7 +30,17 @@ results/
 counter_results/
 evaluation/
 counter_evaluation/
+counterevaluation/
+chain_of_thought/
+chain-of-thought/
+chain of thought/
+acahin_of_though/
 *_results/
 *_evaluation/
 *evaluation_report*.md
 evaluation_*_report*.md
+dataset_*_answer_rows_*.md
+experiment_section_report.md
+# Markdown files
+*.md
+!README.md

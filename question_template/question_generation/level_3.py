@@ -334,6 +334,89 @@ def _fill_template(
     return PLACEHOLDER_RE.sub(lambda match: fill_values[match.group("name").strip()], template), placeholders
 
 
+def _explanation_value(value: object) -> str:
+    text = "" if value is None else str(value)
+    return text if text != "" else "NULL"
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    if value not in values:
+        values.append(value)
+
+
+def _row_label(table: str, row: dict[str, str]) -> str:
+    identity = _row_identity(table, row)
+    return (
+        f"{table}[{identity['id_attribute']}="
+        f"{_explanation_value(identity['id_value'])}]"
+    )
+
+
+def _add_attribute_path(attributes: dict[str, list[str]], raw_path: str) -> None:
+    raw_path = raw_path.strip()
+    if not raw_path or "." not in raw_path:
+        return
+    table, attribute = raw_path.split(".", 1)
+    table = table.strip()
+    attribute = _normalize_attribute(table, attribute.strip())
+    _append_unique(attributes.setdefault(table, []), attribute)
+
+
+def _explanation_attributes(
+    context: Level3Context,
+    template_id: int,
+    answer_source: dict[str, Any],
+) -> dict[str, list[str]]:
+    attributes: dict[str, list[str]] = {}
+    for raw_path in context.templates[template_id]["attributes"].split(";"):
+        _add_attribute_path(attributes, raw_path)
+    if answer_source.get("type") == "derived":
+        for raw_path in answer_source.get("attributes", []):
+            _add_attribute_path(attributes, str(raw_path))
+    elif answer_source.get("table") and answer_source.get("attribute"):
+        table = str(answer_source["table"])
+        attribute = _normalize_attribute(table, str(answer_source["attribute"]))
+        _append_unique(attributes.setdefault(table, []), attribute)
+    return attributes
+
+
+def _default_explanation(
+    context: Level3Context,
+    template_id: int,
+    extra_values: dict[str, str],
+    ground_truth_rows: list[tuple[str, dict[str, str] | None]],
+    answer_source: dict[str, Any],
+) -> str:
+    attributes = _explanation_attributes(context, template_id, answer_source)
+    sentences = [
+        f"{key} is {_explanation_value(value)}"
+        for key, value in extra_values.items()
+    ]
+    seen_rows: set[tuple[str, str, str]] = set()
+    for table, row in ground_truth_rows:
+        if row is None:
+            continue
+        identity = _row_identity(table, row)
+        row_key = (table, str(identity["id_attribute"]), str(identity["id_value"]))
+        if row_key in seen_rows:
+            continue
+        seen_rows.add(row_key)
+        values = []
+        for attribute in attributes.get(table, []):
+            try:
+                value = _table_value(context, table, row, attribute)
+            except KeyError:
+                continue
+            values.append(f"{attribute}={_explanation_value(value)}")
+        if values:
+            sentences.append(f"{_row_label(table, row)} has {', '.join(values)}")
+    if not sentences and answer_source.get("table") and answer_source.get("attribute"):
+        table = str(answer_source["table"])
+        attribute = _normalize_attribute(table, str(answer_source["attribute"]))
+        sentences.append(f"{table}.{attribute} is recorded in the source table")
+    return ". ".join(sentences) + "."
+
+
 def _record(
     context: Level3Context,
     template_id: int,
@@ -342,6 +425,7 @@ def _record(
     ground_truth_rows: list[tuple[str, dict[str, str] | None]],
     answer: str | int,
     answer_source: dict[str, Any],
+    explanation: str | None = None,
 ) -> dict[str, Any]:
     question, placeholders = _fill_template(
         context,
@@ -353,6 +437,13 @@ def _record(
         "template_question_id": template_id,
         "question": question,
         "answer": str(answer),
+        "explanation": explanation or _default_explanation(
+            context,
+            template_id,
+            extra_values,
+            ground_truth_rows,
+            answer_source,
+        ),
         "ground_truth": {
             "rows": _dedupe_row_refs(ground_truth_rows),
             "placeholders": placeholders,
@@ -367,6 +458,10 @@ def _yes_no(value: bool) -> str:
 
 def _format_list(values: list[str]) -> str:
     return "; ".join(values) if values else "NULL"
+
+
+def _format_count_items(counts: dict[str, int]) -> str:
+    return _format_list([f"{key}={value}" for key, value in counts.items()])
 
 
 def _mode_values(values: list[str]) -> list[str]:
@@ -686,6 +781,22 @@ def _pair_ground_rows(items: list[tuple[Any, ...]]) -> list[tuple[str, dict[str,
     return rows
 
 
+def _event_ground_rows(
+    event: dict[str, str],
+    club: dict[str, str] | None = None,
+    player: dict[str, str] | None = None,
+    country: dict[str, str] | None = None,
+) -> list[tuple[str, dict[str, str] | None]]:
+    rows: list[tuple[str, dict[str, str] | None]] = [("game_events", event)]
+    if club is not None:
+        rows.append(("clubs", club))
+    if player is not None:
+        rows.append(("players", player))
+    if country is not None:
+        rows.append(("countries", country))
+    return rows
+
+
 def _transfer_aggregate_question(context: Level3Context, template_id: int, seed: dict[str, str], country_attribute: str) -> dict[str, Any]:
     transfers = _transfer_rows_for_seed(context, seed, apply_specific_filters=False)
     items = _destination_country_items(context, transfers, country_attribute)
@@ -693,53 +804,108 @@ def _transfer_aggregate_question(context: Level3Context, template_id: int, seed:
         raise ValueError(f"Template {template_id}: no destination club joins for seed {seed!r}")
     values = [item[3] for item in items]
     fill_rows = {"transfers": items[0][0], "clubs": items[0][1]}
-    ground_rows = _destination_ground_rows(items)
     extra_values = {}
     operation = "derived"
+    evidence_items = items
+    extra_ground_rows: list[tuple[str, dict[str, str] | None]] = []
 
     if template_id in {0, 12, 21}:
         answer = len(set(values))
         operation = "count_distinct"
     elif template_id in {1, 13, 22}:
-        answer = _format_list(_mode_values(values))
+        mode_values = _mode_values(values)
+        answer = _format_list(mode_values)
         operation = "mode"
+        evidence_items = [item for item in items if item[3] in mode_values]
     elif template_id in {2, 23}:
         fallback_country = items[0][2] or _club_country(context, items[0][1])
         hint = "country_name" if template_id == 2 else country_attribute
         country = _country_by_seed_or_fallback(context, seed, fallback_country, hint)
         fill_rows["countries"] = country
-        ground_rows.append(("countries", country))
-        answer = sum(1 for value in values if value == country[hint])
+        extra_ground_rows.append(("countries", country))
+        evidence_items = [item for item in items if item[3] == country[hint]]
+        answer = len(evidence_items)
         operation = "count_matches_placeholder"
     elif template_id == 14:
-        answer = sum(1 for value in values if value == "Europe")
+        evidence_items = [item for item in items if item[3] == "Europe"]
+        answer = len(evidence_items)
         operation = "count_matches_fixed_europe"
     elif template_id in {3, 15}:
         answer = _format_list(values)
         operation = "list_in_transfer_date_order"
     elif template_id in {4, 16}:
+        evidence_items = [items[0]]
         answer = values[0]
         operation = "first_by_transfer_date"
     elif template_id in {5, 17}:
+        evidence_items = [items[-1]]
         answer = values[-1]
         operation = "latest_by_transfer_date"
     elif template_id == 10:
         season = _seed_get(seed, "transfer_season", "transfers.transfer_season") or items[0][0]["transfer_season"]
-        extra_values["transfer_season"] = season
-        answer = len({value for transfer, _club, _country, value in items if transfer["transfer_season"] == season})
+        evidence_items = [item for item in items if item[0]["transfer_season"] == season]
+        if evidence_items:
+            fill_rows = {"transfers": evidence_items[0][0], "clubs": evidence_items[0][1]}
+        extra_values["transfers.transfer_season"] = season
+        answer = len({item[3] for item in evidence_items})
         operation = "count_distinct_in_season"
     elif template_id == 11:
         by_season: dict[str, set[str]] = defaultdict(set)
         for transfer, _club, _country, value in items:
             by_season[transfer["transfer_season"]].add(value)
         max_count = max(len(country_names) for country_names in by_season.values())
-        answer = _format_list([season for season, country_names in by_season.items() if len(country_names) == max_count])
+        selected_seasons = [
+            season for season, country_names in by_season.items()
+            if len(country_names) == max_count
+        ]
+        answer = _format_list(selected_seasons)
+        evidence_items = [item for item in items if item[0]["transfer_season"] in selected_seasons]
         operation = "season_with_max_distinct"
     elif template_id == 24:
         answer = _yes_no(len(set(values)) <= 1)
         operation = "all_same"
     else:
         raise KeyError(f"Template {template_id}: unsupported transfer aggregate")
+
+    ground_items = evidence_items or items
+    evidence_values = [item[3] for item in evidence_items]
+    ground_values = [item[3] for item in ground_items]
+    if evidence_items:
+        explanation = (
+            f"Relevant destination {country_attribute} values in transfer-date order are "
+            f"{_format_list(evidence_values)}"
+        )
+    else:
+        explanation = (
+            f"No matching destination {country_attribute} values. Considered values are "
+            f"{_format_list(ground_values)}"
+        )
+    if template_id in {2, 23}:
+        explanation += f". Compared {hint} is {country[hint]}"
+    elif template_id == 14:
+        explanation += ". Compared continent is Europe"
+    elif template_id == 10:
+        if evidence_items:
+            explanation = (
+                f"For transfer_season {season}, relevant destination {country_attribute} "
+                f"values are {_format_list(evidence_values)}"
+            )
+        else:
+            explanation = (
+                f"For transfer_season {season}, no matching destination {country_attribute} "
+                f"values. Considered values are {_format_list(ground_values)}"
+            )
+    elif template_id == 11:
+        season_counts = {
+            season_name: len(country_names)
+            for season_name, country_names in by_season.items()
+        }
+        explanation = (
+            f"Distinct destination {country_attribute} counts by transfer_season "
+            f"are {_format_count_items(season_counts)}. Relevant seasons are {_format_list(selected_seasons)}"
+        )
+    explanation += "."
+    ground_rows = _destination_ground_rows(ground_items) + extra_ground_rows
 
     return _record(
         context,
@@ -749,6 +915,7 @@ def _transfer_aggregate_question(context: Level3Context, template_id: int, seed:
         ground_rows,
         answer,
         _derived_source(operation, ["transfers.to_club_id", "clubs.country_name" if country_attribute == "country_name" else f"countries.{country_attribute}"], "Computed from the seed player's destination club joins."),
+        explanation=explanation,
     )
 
 
@@ -758,33 +925,56 @@ def _transfer_pair_question(context: Level3Context, template_id: int, seed: dict
     if not items:
         raise ValueError(f"Template {template_id}: no from/to club joins for seed {seed!r}")
     fill_rows = {"transfers": items[0][0], "clubs": items[0][2]}
-    ground_rows = _pair_ground_rows(items)
+    extra_ground_rows: list[tuple[str, dict[str, str] | None]] = []
     if template_id in {6, 18}:
-        answer = sum(1 for item in items if item[5] == item[6])
+        evidence_items = [item for item in items if item[5] == item[6]]
+        answer = len(evidence_items)
         operation = "count_same"
     elif template_id in {7, 19}:
-        answer = sum(1 for item in items if item[5] != item[6])
+        evidence_items = [item for item in items if item[5] != item[6]]
+        answer = len(evidence_items)
         operation = "count_different"
     elif template_id in {8, 20}:
-        answer = _yes_no(any(item[5] != item[6] for item in items))
+        different_items = [item for item in items if item[5] != item[6]]
+        evidence_items = different_items[:1] if different_items else items
+        answer = _yes_no(bool(different_items))
         operation = "exists_different"
     elif template_id == 9:
         fallback_country = _club_country(context, items[0][1])
         country = _country_by_seed_or_fallback(context, seed, fallback_country, "country_name")
         fill_rows["countries"] = country
-        ground_rows.append(("countries", country))
-        answer = sum(1 for item in items if item[5] == country["country_name"] and item[6] != country["country_name"])
+        extra_ground_rows.append(("countries", country))
+        evidence_items = [
+            item for item in items
+            if item[5] == country["country_name"] and item[6] != country["country_name"]
+        ]
+        answer = len(evidence_items)
         operation = "count_from_placeholder_country_to_different_country"
     else:
         raise KeyError(f"Template {template_id}: unsupported transfer pair aggregate")
+    ground_items = evidence_items or items
+    pair_values = [f"{item[5]} -> {item[6]}" for item in ground_items]
+    if evidence_items:
+        explanation = (
+            f"Relevant transfer {country_attribute} pairs are {_format_list(pair_values)}"
+        )
+    else:
+        explanation = (
+            f"No matching transfer {country_attribute} pairs. Considered pairs are "
+            f"{_format_list(pair_values)}"
+        )
+    if template_id == 9:
+        explanation += f". Compared from country is {country['country_name']}"
+    explanation += "."
     return _record(
         context,
         template_id,
         fill_rows,
         {},
-        ground_rows,
+        _pair_ground_rows(ground_items) + extra_ground_rows,
         answer,
         _derived_source(operation, ["transfers.from_club_id", "transfers.to_club_id", "clubs.country_name" if country_attribute == "country_name" else f"countries.{country_attribute}"], "Joined each transfer to previous and destination clubs."),
+        explanation=explanation,
     )
 
 
@@ -813,66 +1003,123 @@ def _game_event_question(context: Level3Context, template_id: int, seed: dict[st
     fill_rows = {"game_events": seed_event}
     comparison_country: dict[str, str] | None = None
     comparison_continent = "Europe" if template_id in {25, 26, 28, 32, 33} else None
-    ground_rows: list[tuple[str, dict[str, str] | None]] = [("game_events", seed_event)]
+    base_ground_rows: list[tuple[str, dict[str, str] | None]] = [("game_events", seed_event)]
     if template_id != 31 and comparison_continent is None:
         country_hint = "capital_city" if template_id == 27 else "country_name"
         comparison_country = _country_by_seed_or_fallback(context, seed, _event_country_fallback(context, seed_event), country_hint)
         fill_rows["countries"] = comparison_country
-        ground_rows.append(("countries", comparison_country))
+        base_ground_rows.append(("countries", comparison_country))
     count = 0
     values: list[str] = []
+    evidence_values: list[str] = []
+    evidence_ground_rows: list[tuple[str, dict[str, str] | None]] = []
+    considered_ground_rows: list[tuple[str, dict[str, str] | None]] = []
+    mode_rows: list[tuple[str, dict[str, str], dict[str, str], str]] = []
 
     for event in events:
-        ground_rows.append(("game_events", event))
         if template_id in {25, 29, 30, 31, 32, 33}:
             club = _maybe_club_by_id(context, event.get("club_id", ""))
             if club is None:
                 continue
-            ground_rows.append(("clubs", club))
             country = _club_country(context, club)
+            club_country_name = _club_country_name(context, club)
+            if template_id == 31:
+                values.append(club_country_name)
+                mode_rows.append((event, club, country, club_country_name))
+                continue
+
+            row_evidence = _event_ground_rows(
+                event,
+                club=club,
+                country=country if template_id in {25, 32, 33} else None,
+            )
+            value_evidence = (
+                f"{event['game_event_id']}: type={event['type']}, "
+                f"club_country={club_country_name}"
+            )
             if template_id in {25, 32, 33}:
-                ground_rows.append(("countries", country))
+                value_evidence += f", continent={country['continent']}"
+
+            matched = False
             if template_id == 25 and event["type"] == seed_event["type"] and country["continent"] == comparison_continent:
-                count += 1
-            elif template_id == 29 and _club_country_name(context, club) == comparison_country["country_name"]:
-                count += 1
-            elif template_id == 30 and event["type"] == seed_event["type"] and _club_country_name(context, club) == comparison_country["country_name"]:
-                count += 1
-            elif template_id == 31:
-                values.append(_club_country_name(context, club))
+                matched = True
+            elif template_id == 29 and comparison_country is not None and _club_country_name(context, club) == comparison_country["country_name"]:
+                matched = True
+            elif template_id == 30 and comparison_country is not None and event["type"] == seed_event["type"] and _club_country_name(context, club) == comparison_country["country_name"]:
+                matched = True
             elif template_id == 32 and country["continent"] == comparison_continent:
-                count += 1
+                matched = True
             elif template_id == 33 and event["type"] == seed_event["type"] and country["continent"] == comparison_continent:
+                matched = True
+            if matched:
                 count += 1
+                evidence_ground_rows.extend(row_evidence)
+                evidence_values.append(value_evidence)
         elif template_id in {26, 27, 28}:
             player_id_attribute = "player_assist_id" if template_id == 28 else "player_id"
             player = _maybe_player_by_id(context, event.get(player_id_attribute, ""))
             if player is None:
+                if template_id == 26:
+                    considered_ground_rows.extend(_event_ground_rows(event))
                 continue
-            ground_rows.append(("players", player))
             country_name = player["country_of_birth"] if template_id == 27 else player["country_of_citizenship"]
             country = _maybe_country_by_name(context, country_name)
             if country is None:
+                if template_id == 26:
+                    considered_ground_rows.extend(_event_ground_rows(event, player=player))
                 continue
-            ground_rows.append(("countries", country))
-            if template_id == 26 and country["continent"] == comparison_continent:
+            if template_id == 26:
+                considered_ground_rows.extend(_event_ground_rows(event, player=player, country=country))
+            if template_id == 27:
+                value_evidence = (
+                    f"{event['game_event_id']}: player_country={country_name}, "
+                    f"capital_city={country['capital_city']}"
+                )
+                matched = comparison_country is not None and country["capital_city"] == comparison_country["capital_city"]
+            else:
+                value_evidence = (
+                    f"{event['game_event_id']}: player_country={country_name}, "
+                    f"continent={country['continent']}"
+                )
+                matched = country["continent"] == comparison_continent
+            if matched:
                 count += 1
-            elif template_id == 27 and country["capital_city"] == comparison_country["capital_city"]:
-                count += 1
-            elif template_id == 28 and country["continent"] == comparison_continent:
-                count += 1
+                evidence_ground_rows.extend(_event_ground_rows(event, player=player, country=country))
+                evidence_values.append(value_evidence)
         else:
             raise KeyError(f"Template {template_id}: unsupported game event question")
-    answer = _format_list(_mode_values(values)) if template_id == 31 else count
+
+    if template_id == 31:
+        mode_values = _mode_values(values)
+        answer = _format_list(mode_values)
+        country_counts = Counter(values)
+        for event, club, country, club_country_name in mode_rows:
+            if club_country_name in mode_values:
+                evidence_ground_rows.extend(_event_ground_rows(event, club=club))
+        explanation = (
+            f"Club country counts by event are {_format_count_items(dict(country_counts))}. "
+            f"Relevant modal countries are {_format_list(mode_values)}."
+        )
+    else:
+        answer = count
+        explanation = f"Matching event values are {_format_list(evidence_values)}"
+        if comparison_continent:
+            explanation += f". Compared continent is {comparison_continent}"
+        elif comparison_country is not None and template_id == 27:
+            explanation += f". Compared capital_city is {comparison_country['capital_city']}"
+        elif comparison_country is not None:
+            explanation += f". Compared country_name is {comparison_country['country_name']}"
+        explanation += "."
     operation = "mode" if template_id == 31 else "count_matches_fixed_europe" if comparison_continent else "count_matches"
     return _record(
         context,
         template_id,
         fill_rows,
         {},
-        ground_rows,
+        base_ground_rows + (considered_ground_rows if template_id == 26 else evidence_ground_rows),
         answer,
-        _derived_source(operation, [part.strip() for part in context.templates[template_id]["attributes"].split(";")], "Computed from all events in the seed event's game."),
+        _derived_source(operation, [part.strip() for part in context.templates[template_id]["attributes"].split(";")], "Computed from matching events in the seed event's game."),
+        explanation=explanation,
     )
 
 
@@ -975,16 +1222,26 @@ def _current_competition_question(context: Level3Context, template_id: int, seed
     fill_rows = {"transfers": transfer, "clubs": club, "competitions": competition}
     ground_rows: list[tuple[str, dict[str, str] | None]] = [("transfers", transfer), ("clubs", club), ("competitions", competition)]
     extra_values = {"target_date": target.isoformat()}
+    explanation = None
     if template_id in {49, 50, 51, 52}:
         attribute = {49: "type", 50: "sub_type", 51: "country_name", 52: "confederation"}[template_id]
         answer = competition[attribute]
         source = _cell_source("competitions", competition, attribute)
     elif template_id == 53:
-        answer = sum(1 for candidate in context.table_rows["clubs"].values() if candidate.get("domestic_competition_id") == competition["competition_id"])
+        matching_club_ids = [
+            candidate["club_id"]
+            for candidate in context.table_rows["clubs"].values()
+            if candidate.get("domestic_competition_id") == competition["competition_id"]
+        ]
+        answer = len(matching_club_ids)
+        explanation = (
+            f"Current club domestic_competition_id is {competition['competition_id']}. "
+            f"Matching club_ids are {_format_list(matching_club_ids)}."
+        )
         source = _derived_source("count", ["clubs.domestic_competition_id", "competitions.competition_id"], "Counted clubs in the current club's domestic competition.")
     else:
         raise KeyError(f"Template {template_id}: unsupported competition question")
-    return _record(context, template_id, fill_rows, extra_values, ground_rows, answer, source)
+    return _record(context, template_id, fill_rows, extra_values, ground_rows, answer, source, explanation=explanation)
 
 
 def _current_player_country_question(context: Level3Context, template_id: int, seed: dict[str, str]) -> dict[str, Any]:
@@ -1067,7 +1324,26 @@ def _appearance_age_question(context: Level3Context, template_id: int, seed: dic
             matching.append(row)
         appearance = matching[-1] if matching else None
     answer = "NULL" if appearance is None else str(_age_on(player, _parse_date(appearance["date"])))
-    return _record(context, template_id, {"transfers": transfer, "players": player}, {}, [("transfers", transfer), ("players", player), ("appearance", appearance)], answer, _derived_source("age_on_appearance_date", ["players.date_of_birth", "appearance.date"], "Calculated player age on the matching appearance date."))
+    if appearance is None:
+        explanation = (
+            f"players.date_of_birth is {player['date_of_birth']}. "
+            "No matching appearance row was found."
+        )
+    else:
+        explanation = (
+            f"players.date_of_birth is {player['date_of_birth']}. "
+            f"Matching appearance.date is {appearance['date']}."
+        )
+    return _record(
+        context,
+        template_id,
+        {"transfers": transfer, "players": player},
+        {},
+        [("transfers", transfer), ("players", player), ("appearance", appearance)],
+        answer,
+        _derived_source("age_on_appearance_date", ["players.date_of_birth", "appearance.date"], "Calculated player age on the matching appearance date."),
+        explanation=explanation,
+    )
 
 
 def _competition_appearance_question(context: Level3Context, template_id: int, seed: dict[str, str]) -> dict[str, Any]:
@@ -1079,8 +1355,7 @@ def _competition_appearance_question(context: Level3Context, template_id: int, s
             joined.append((appearance, competition))
     fill_rows: dict[str, dict[str, str]] = {"transfers": transfer}
     ground_rows: list[tuple[str, dict[str, str] | None]] = [("transfers", transfer)]
-    for appearance, competition in joined:
-        ground_rows.extend([("appearance", appearance), ("competitions", competition)])
+    evidence_rows: list[tuple[str, dict[str, str] | None]] = []
     if template_id in {72, 73}:
         attribute = "country_name" if template_id == 72 else "confederation"
         fallback_country = None
@@ -1095,13 +1370,34 @@ def _competition_appearance_question(context: Level3Context, template_id: int, s
         country = _country_by_seed_or_fallback(context, seed, fallback_country, attribute)
         fill_rows["countries"] = country
         ground_rows.append(("countries", country))
-        answer = sum(1 for _appearance, competition in joined if competition.get(attribute) == country[attribute])
+        matching_joined = [
+            (appearance, competition)
+            for appearance, competition in joined
+            if competition.get(attribute) == country[attribute]
+        ]
+        values = [competition.get(attribute, "") for _appearance, competition in matching_joined]
+        answer = len(matching_joined)
+        for appearance, competition in matching_joined:
+            evidence_rows.extend([("appearance", appearance), ("competitions", competition)])
+        explanation = (
+            f"Matching competition {attribute} values in the appearance window are "
+            f"{_format_list(values)}. Compared {attribute} is {country[attribute]}."
+        )
         source = _derived_source("count_matches_placeholder", ["appearance.competition_id", f"competitions.{attribute}"], "Counted appearances whose competition matched the placeholder country field.")
     else:
         attribute = "type" if template_id == 74 else "sub_type"
-        answer = _format_list(_mode_values([competition.get(attribute, "") for _appearance, competition in joined]))
+        values = [competition.get(attribute, "") for _appearance, competition in joined]
+        mode_values = _mode_values(values)
+        answer = _format_list(mode_values)
+        for appearance, competition in joined:
+            if competition.get(attribute, "") in mode_values:
+                evidence_rows.extend([("appearance", appearance), ("competitions", competition)])
+        explanation = (
+            f"Competition {attribute} counts in the appearance window are "
+            f"{_format_count_items(dict(Counter(values)))}. Relevant modal values are {_format_list(mode_values)}."
+        )
         source = _derived_source("mode", ["appearance.competition_id", f"competitions.{attribute}"], "Computed the most frequent competition field during the transfer stint.")
-    return _record(context, template_id, fill_rows, {}, ground_rows, answer, source)
+    return _record(context, template_id, fill_rows, {}, ground_rows + evidence_rows, answer, source, explanation=explanation)
 
 
 def _stint_for_transfer(context: Level3Context, transfer: dict[str, str]) -> Stint:
@@ -1200,6 +1496,14 @@ def _format_overlap_range(overlap: tuple[date, date | None] | None) -> str:
     return f"{start.isoformat()} to {end.isoformat() if end else 'present'}"
 
 
+def _format_stint(stint: Stint) -> str:
+    return (
+        f"{stint.player_name} at {stint.club_name} from "
+        f"{stint.start.isoformat()} to "
+        f"{stint.end.isoformat() if stint.end else 'present'}"
+    )
+
+
 def _left_before_arrived(context: Level3Context, first_name: str, second_name: str, club_id: str) -> bool:
     for first in _stints_for_player_name_at_club(context, first_name, club_id):
         if first.end is None:
@@ -1217,47 +1521,95 @@ def _overlap_question(context: Level3Context, template_id: int, seed: dict[str, 
     other_name, player_name_1, player_name_2 = _seed_overlap_names(context, seed, subject)
     extra_values = {"other_player_name": other_name, "player_name_1": player_name_1, "player_name_2": player_name_2}
     ground_rows: list[tuple[str, dict[str, str] | None]] = [("transfers", transfer)]
-    ground_rows.extend(("transfers", stint.start_transfer) for stint in overlaps)
-    if template_id in {78, 82}:
-        ground_rows.extend(_stint_rows(_stints_for_player_name_at_club(context, other_name, subject.club_id)))
-    if template_id in {79, 80, 81}:
-        ground_rows.extend(_stint_rows(_stints_for_player_name_at_club(context, player_name_1, subject.club_id)))
-        ground_rows.extend(_stint_rows(_stints_for_player_name_at_club(context, player_name_2, subject.club_id)))
+    subject_text = _format_stint(subject)
+
     if template_id == 76:
-        answer = _format_list(list(dict.fromkeys(stint.player_name for stint in overlaps)))
+        selected_stints = overlaps
+        selected_names = list(dict.fromkeys(stint.player_name for stint in selected_stints))
+        answer = _format_list(selected_names)
         operation = "list_overlapping_players"
+        explanation = f"Subject stint is {subject_text}. Relevant overlapping stint count is {len(selected_stints)}."
+        ground_rows.extend(("transfers", stint.start_transfer) for stint in selected_stints)
     elif template_id == 77:
-        answer = len({stint.player_id for stint in overlaps})
+        selected_stints = overlaps
+        overlap_count = len({stint.player_id for stint in selected_stints})
+        answer = overlap_count
         operation = "count_overlapping_players"
+        explanation = f"Subject stint is {subject_text}. Relevant distinct overlapping player count is {overlap_count}."
+        ground_rows.extend(("transfers", stint.start_transfer) for stint in selected_stints)
     elif template_id == 78:
-        answer = _yes_no(any(stint.player_name == other_name for stint in overlaps))
+        selected_stints = [stint for stint in overlaps if stint.player_name == other_name]
+        answer = _yes_no(bool(selected_stints))
         operation = "exists_overlap_with_placeholder_player"
+        explanation = f"Subject stint is {subject_text}. {other_name} relevant overlapping stint count is {len(selected_stints)}."
+        ground_rows.extend(_stint_rows(selected_stints))
     elif template_id == 79:
-        answer = _yes_no(_any_named_overlap(context, player_name_1, player_name_2, subject.club_id))
+        first_stints = _stints_for_player_name_at_club(context, player_name_1, subject.club_id)
+        second_stints = _stints_for_player_name_at_club(context, player_name_2, subject.club_id)
+        named_overlap = _any_named_overlap(context, player_name_1, player_name_2, subject.club_id)
+        answer = _yes_no(named_overlap)
         operation = "named_players_overlap"
+        explanation = f"Compared {player_name_1} and {player_name_2} stints at {subject.club_name}; overlap exists is {_yes_no(named_overlap)}."
+        ground_rows.extend(_stint_rows(first_stints))
+        ground_rows.extend(_stint_rows(second_stints))
     elif template_id == 80:
-        answer = _format_overlap_range(_first_named_overlap_range(context, player_name_1, player_name_2, subject.club_id))
+        first_stints = _stints_for_player_name_at_club(context, player_name_1, subject.club_id)
+        second_stints = _stints_for_player_name_at_club(context, player_name_2, subject.club_id)
+        overlap_range = _first_named_overlap_range(context, player_name_1, player_name_2, subject.club_id)
+        answer = _format_overlap_range(overlap_range)
         operation = "named_players_overlap_range"
+        explanation = f"Compared {player_name_1} and {player_name_2} stints at {subject.club_name}; first overlap range is {answer}."
+        ground_rows.extend(_stint_rows(first_stints))
+        ground_rows.extend(_stint_rows(second_stints))
     elif template_id == 81:
-        answer = _yes_no(_left_before_arrived(context, player_name_1, player_name_2, subject.club_id))
+        first_stints = _stints_for_player_name_at_club(context, player_name_1, subject.club_id)
+        second_stints = _stints_for_player_name_at_club(context, player_name_2, subject.club_id)
+        left_before = _left_before_arrived(context, player_name_1, player_name_2, subject.club_id)
+        answer = _yes_no(left_before)
         operation = "left_before_arrived"
+        explanation = f"Compared {player_name_1} leaving and {player_name_2} arriving at {subject.club_name}; left-before-arrived is {_yes_no(left_before)}."
+        ground_rows.extend(_stint_rows(first_stints))
+        ground_rows.extend(_stint_rows(second_stints))
     elif template_id == 82:
-        answer = _yes_no(any(stint.player_name == other_name and _already_at_club(subject, stint) for stint in overlaps))
+        selected_stints = [
+            stint
+            for stint in overlaps
+            if stint.player_name == other_name and _already_at_club(subject, stint)
+        ]
+        answer = _yes_no(bool(selected_stints))
         operation = "already_at_club"
+        explanation = f"Subject stint is {subject_text}. {other_name} relevant already-at-club stint count is {len(selected_stints)}."
+        ground_rows.extend(_stint_rows(selected_stints))
     elif template_id == 83:
-        answer = _format_list(list(dict.fromkeys(stint.player_name for stint in overlaps if _already_at_club(subject, stint))))
+        selected_stints = [stint for stint in overlaps if _already_at_club(subject, stint)]
+        selected_names = list(dict.fromkeys(stint.player_name for stint in selected_stints))
+        answer = _format_list(selected_names)
         operation = "list_already_at_club"
+        explanation = f"Subject stint is {subject_text}. Relevant already-at-club player count is {len(selected_names)}."
+        ground_rows.extend(("transfers", stint.start_transfer) for stint in selected_stints)
     elif template_id == 84:
-        joined_after = [
-            stint.player_name
+        selected_stints = [
+            stint
             for stint in context.stints_by_club_id.get(subject.club_id, [])
             if stint.player_id != subject.player_id and subject.start < stint.start < _end_or_open(subject)
         ]
-        answer = _format_list(list(dict.fromkeys(joined_after)))
+        selected_names = [stint.player_name for stint in selected_stints]
+        answer = _format_list(list(dict.fromkeys(selected_names)))
         operation = "list_joined_after_before_next_transfer"
+        explanation = f"Subject stint is {subject_text}. Relevant joined-after player count is {len(selected_names)}."
+        ground_rows.extend(("transfers", stint.start_transfer) for stint in selected_stints)
     else:
         raise KeyError(f"Template {template_id}: unsupported overlap question")
-    return _record(context, template_id, {"transfers": transfer}, extra_values, ground_rows, answer, _derived_source(operation, ["transfers.player_id", "transfers.transfer_date", "transfers.to_club_id"], "Inferred player club stints from transfer intervals and compared date ranges."))
+    return _record(
+        context,
+        template_id,
+        {"transfers": transfer},
+        extra_values,
+        ground_rows,
+        answer,
+        _derived_source(operation, ["transfers.player_id", "transfers.transfer_date", "transfers.to_club_id"], "Inferred player club stints from transfer intervals and compared date ranges."),
+        explanation=explanation,
+    )
 
 
 def _question_dispatch(context: Level3Context, template_id: int, seed: dict[str, str]) -> dict[str, Any]:
@@ -1392,7 +1744,7 @@ def generate_level_3_questions(
             except ValueError as exc:
                 errors.append(f"seed={seed!r}: {exc}")
                 continue
-            records.append({"question_id": template_id, **record})
+            records.append({"question_id": template_id, "level": "level_3", **record})
 
         if custom_seeds and len(records) == start_count:
             for seed in default_seeds.get(tables_key, []):
@@ -1401,7 +1753,7 @@ def generate_level_3_questions(
                 except ValueError as exc:
                     errors.append(f"default seed={seed!r}: {exc}")
                     continue
-                records.append({"question_id": template_id, **record})
+                records.append({"question_id": template_id, "level": "level_3", **record})
                 print(
                     f"[level_3] template {template_id}: custom seeds failed; used default seed",
                     file=sys.stderr,

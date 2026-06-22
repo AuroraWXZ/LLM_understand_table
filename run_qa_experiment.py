@@ -2,7 +2,7 @@
 
 The default run starts with ``question_counter/level_1``, samples rows from
 ``dataset_counter/``, generates answers with Llama by default, and grades
-the answers with ``gpt-4o-mini``.
+the answers with ``gpt-4o``.
 """
 
 from __future__ import annotations
@@ -22,8 +22,27 @@ from typing import Any
 
 DEFAULT_GENERATOR_BACKEND = "llama"
 DEFAULT_OPENAI_MODEL = "gpt-5.4-mini"
+DEFAULT_GEMINI_MODEL = "gemini-3.1-flash-lite"
 DEFAULT_LLAMA_MODEL = "meta-llama/Llama-3.2-1B-Instruct"
-DEFAULT_EVALUATOR_MODEL = "gpt-4o-mini"
+DEFAULT_EVALUATOR_MODEL = "gpt-4o"
+DEFAULT_TEMPERATURE = 0.0
+DEFAULT_RANDOM_SEED = 0
+GEMINI_MODELS = {
+    "gemini-3.1-flash-lite": "gemini-3.1-flash-lite",
+}
+# The backend is still named "llama" for CLI compatibility, but this registry
+# supports any Hugging Face causal LM that works with AutoModelForCausalLM.
+LLAMA_MODELS = {
+    "llama-3.2-1b": "meta-llama/Llama-3.2-1B",
+    "llama-3.2-1b-instruct": "meta-llama/Llama-3.2-1B-Instruct",
+    "llama-3.2-3b-instruct": "meta-llama/Llama-3.2-3B-Instruct",
+    "llama-3.1-8b": "meta-llama/Llama-3.1-8B",
+    "llama-3.1-8b-instruct": "meta-llama/Llama-3.1-8B-Instruct",
+    "gemma-4-e4b-it": "google/gemma-4-E4B-it",
+    "gemma-4-e2b-it": "google/gemma-4-E2B-it",
+    "qwen3.5-9b": "Qwen/Qwen3.5-9B",
+    "qwen3.5-2b": "Qwen/Qwen3.5-2B",
+}
 DEFAULT_QUESTIONS_ROOT = Path("question_counter")
 DEFAULT_DATASET_DIR = Path("dataset_counter")
 DEFAULT_RESULTS_ROOT = Path("counter_results")
@@ -153,6 +172,23 @@ def safe_question_filename(question_id: Any) -> str:
 def normalize_model_id(model_name: str, lowercase: bool = False) -> str:
     normalized = re.sub(r"\s+", "-", model_name.strip())
     return normalized.lower() if lowercase else normalized
+
+
+def resolve_llama_model_id(model_name: str) -> str:
+    normalized = normalize_model_id(model_name)
+    lookup = normalized.lower()
+    for alias, model_id in LLAMA_MODELS.items():
+        if lookup in {alias, model_id.lower()}:
+            return model_id
+    return normalized
+
+
+def resolve_gemini_model_id(model_name: str) -> str:
+    normalized = normalize_model_id(model_name, lowercase=True)
+    for alias, model_id in GEMINI_MODELS.items():
+        if normalized in {alias, model_id.lower()}:
+            return model_id
+    return normalized
 
 
 def safe_model_dir_name(model_name: str) -> str:
@@ -359,12 +395,22 @@ def rows_to_csv(fieldnames: list[str], rows: list[dict[str, str]]) -> str:
     return buffer.getvalue().rstrip("\n")
 
 
+def build_gold_full_answer(answer: str, explanation: str) -> str:
+    return f"Answer: {answer}. Explanation: {explanation}"
+
+
+def is_null_reference_explanation(explanation: object) -> bool:
+    text = str(explanation or "").strip().lower()
+    return text in {"", "null", "none", "nan", "n/a", "na"}
+
+
 def build_prompt(record: dict[str, Any], sampled_tables: list[dict[str, Any]]) -> str:
     parts = [
-        "You are answering a table question.",
+        "You will be answering a table question.",
         "Use only the CSV tables below.",
         "The excerpts preserve the source column order and selected row order.",
-        "Return a concise answer to the question.",
+        "Return the final answer plus a brief explanation grounded in the shown table values.",
+        "Use this format: Answer: <short final answer>. Explanation: <brief table-grounded reason>.",
         "",
         f"Question: {record['question']}",
         "",
@@ -386,7 +432,7 @@ def build_prompt(record: dict[str, Any], sampled_tables: list[dict[str, Any]]) -
 class OpenAIGenerator:
     """OpenAI Chat Completions wrapper for GPT text generation."""
 
-    def __init__(self, model_name: str) -> None:
+    def __init__(self, model_name: str, temperature: float, seed: int) -> None:
         try:
             from openai import OpenAI
         except ImportError as exc:
@@ -400,15 +446,19 @@ class OpenAIGenerator:
 
         self.client = OpenAI()
         self.model_name = model_name
+        self.temperature = temperature
+        self.seed = seed
 
     def generate(self, prompt: str) -> str:
         response = self.client.chat.completions.create(
             model=self.model_name,
             max_completion_tokens=GENERATION_MAX_TOKENS,
+            temperature=self.temperature,
+            seed=self.seed,
             messages=[
                 {
                     "role": "system",
-                    "content": "You answer table questions with concise factual answers.",
+                    "content": "You answer table questions with concise factual answers and brief table-grounded explanations.",
                 },
                 {"role": "user", "content": prompt},
             ],
@@ -416,20 +466,68 @@ class OpenAIGenerator:
         return (response.choices[0].message.content or "").strip()
 
 
-class LlamaGenerator:
-    """Hugging Face Transformers wrapper for Llama text generation."""
+class GeminiGenerator:
+    def __init__(self, model_name: str, temperature: float) -> None:
+        try:
+            from google import genai
+            from google.genai import types
+        except ImportError as exc:
+            raise RuntimeError(
+                "Gemini generation requires the google-genai package. "
+                "Install it with: pip install -r requirement.txt"
+            ) from exc
 
-    def __init__(self, model_name: str) -> None:
+        api_key = os.environ.get("GEMINI_API_KEY")
+        if not api_key:
+            raise RuntimeError("Set GEMINI_API_KEY before running Gemini generation.")
+
+        self.client = genai.Client(api_key=api_key)
+        self.types = types
+        self.model_name = model_name
+        self.temperature = temperature
+
+    def generate(self, prompt: str) -> str:
+        response = self.client.models.generate_content(
+            model=self.model_name,
+            contents=prompt,
+            config=self.types.GenerateContentConfig(
+                max_output_tokens=GENERATION_MAX_TOKENS,
+                temperature=self.temperature,
+                system_instruction=(
+                    "You answer table questions with concise factual answers "
+                    "and brief table-grounded explanations."
+                ),
+            ),
+        )
+        text = getattr(response, "text", None)
+        if text:
+            return text.strip()
+
+        candidates = getattr(response, "candidates", None) or []
+        if not candidates:
+            return ""
+        content = getattr(candidates[0], "content", None)
+        parts = getattr(content, "parts", None) or []
+        return "".join(str(getattr(part, "text", "") or "") for part in parts).strip()
+
+
+class LlamaGenerator:
+    """Hugging Face Transformers wrapper for causal LM text generation."""
+
+    def __init__(self, model_name: str, seed: int) -> None:
         try:
             import torch
             from transformers import AutoModelForCausalLM, AutoTokenizer
         except ImportError as exc:
             raise RuntimeError(
-                "Llama generation requires torch and transformers. "
+                "Hugging Face generation requires torch and transformers. "
                 "Install them with: pip install -r requirement.txt"
             ) from exc
 
         self.torch = torch
+        self.torch.manual_seed(seed)
+        if self.torch.cuda.is_available():
+            self.torch.cuda.manual_seed_all(seed)
         self.tokenizer = AutoTokenizer.from_pretrained(
             model_name,
             trust_remote_code=LLAMA_TRUST_REMOTE_CODE,
@@ -440,6 +538,7 @@ class LlamaGenerator:
             device_map=LLAMA_DEVICE_MAP,
             trust_remote_code=LLAMA_TRUST_REMOTE_CODE,
         )
+        self.disable_qwen_thinking = model_name.lower().startswith("qwen/qwen3.5")
         if self.tokenizer.pad_token_id is None:
             self.tokenizer.pad_token = self.tokenizer.eos_token
 
@@ -447,15 +546,19 @@ class LlamaGenerator:
         messages = [
             {
                 "role": "system",
-                "content": "You answer table questions with concise factual answers.",
+                "content": "You answer table questions with concise factual answers and brief table-grounded explanations.",
             },
             {"role": "user", "content": prompt},
         ]
         if getattr(self.tokenizer, "chat_template", None):
+            chat_template_kwargs: dict[str, Any] = {}
+            if self.disable_qwen_thinking:
+                chat_template_kwargs["enable_thinking"] = False
             formatted = self.tokenizer.apply_chat_template(
                 messages,
                 tokenize=False,
                 add_generation_prompt=True,
+                **chat_template_kwargs,
             )
         else:
             formatted = prompt
@@ -482,9 +585,18 @@ class LlamaGenerator:
 def build_generator(args: argparse.Namespace) -> Any:
     load_dotenv_if_available()
     if args.generator_backend == "openai":
-        return OpenAIGenerator(model_name=args.generator_model)
+        return OpenAIGenerator(
+            model_name=args.generator_model,
+            temperature=args.temperature,
+            seed=args.seed,
+        )
+    if args.generator_backend == "gemini":
+        return GeminiGenerator(
+            model_name=args.generator_model,
+            temperature=args.temperature,
+        )
     if args.generator_backend == "llama":
-        return LlamaGenerator(model_name=args.generator_model)
+        return LlamaGenerator(model_name=args.generator_model, seed=args.seed)
     raise ValueError(f"Unsupported generator backend: {args.generator_backend}")
 
 def run_generation(args: argparse.Namespace, level: str, records: list[dict[str, Any]]) -> None:
@@ -527,12 +639,19 @@ def run_generation(args: argparse.Namespace, level: str, records: list[dict[str,
         assigned_rows_per_table = max(1, args.num_rows // len(sampled))
         prompt = build_prompt(record, sampled)
         model_answer = generator.generate(prompt)
+        reference_answer = str(record.get("answer") or "")
+        reference_explanation = str(record.get("explanation") or "")
         payload = {
             "level": level,
             "question_id": question_id,
             "template_question_id": record.get("template_question_id"),
             "question": record.get("question"),
-            "reference_answer": record.get("answer"),
+            "reference_answer": reference_answer,
+            "reference_explanation": reference_explanation,
+            "reference_full_answer": build_gold_full_answer(
+                reference_answer,
+                reference_explanation,
+            ),
             "ground_truth": record.get("ground_truth"),
             "sampling": {
                 "total_row_budget": args.num_rows,
@@ -553,6 +672,8 @@ def run_generation(args: argparse.Namespace, level: str, records: list[dict[str,
             "prompt": prompt,
             "generator_backend": args.generator_backend,
             "generator_model": args.generator_model,
+            "temperature": args.temperature,
+            "seed": args.seed,
             "model_dir": model_dir,
             "model_answer": model_answer,
         }
@@ -587,6 +708,8 @@ def evaluate_with_openai(
     question: str,
     reference_answer: str,
     model_answer: str,
+    temperature: float,
+    seed: int,
 ) -> dict[str, Any]:
     rubric = (
         "You are grading answer equivalence for a table QA benchmark. "
@@ -615,6 +738,94 @@ def evaluate_with_openai(
     response = client.chat.completions.create(
         model=evaluator_model,
         response_format={"type": "json_object"},
+        temperature=temperature,
+        seed=seed,
+        messages=[
+            {"role": "system", "content": rubric},
+            {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
+        ],
+    )
+    content = response.choices[0].message.content or "{}"
+    parsed = parse_json_object(content)
+    correct = bool(parsed.get("correct", parsed.get("accuracy", 0)))
+    accuracy = 1 if correct else 0
+    return {
+        "correct": correct,
+        "accuracy": accuracy,
+        "rationale": str(parsed.get("rationale", "")),
+        "raw_evaluator_response": parsed,
+    }
+
+
+def evaluate_full_answer_with_openai(
+    client: Any,
+    evaluator_model: str,
+    question: str,
+    reference_answer: str,
+    reference_explanation: str,
+    reference_explanation_is_null: bool,
+    model_response: str,
+    temperature: float,
+    seed: int,
+) -> dict[str, Any]:
+    rubric = """
+    You are grading a table QA benchmark response.
+
+The tables may contain original or counterfactual facts. Treat reference_answer as the authoritative ground truth, even if it conflicts with real-world knowledge. Do not use your own knowledge to judge the answer.
+
+Return only valid JSON:
+{
+"answer_correct": boolean,
+"grounded": boolean,
+"accuracy": 0 or 1,
+"grounded_accuracy": 0 or 1,
+"rationale": "short explanation"
+}
+
+Grading rules:
+
+1. First grade the model's main/final answer against reference_answer.
+
+   * If the final answer matches reference_answer, set answer_correct=true and accuracy=1.
+   * If the final answer is wrong, missing, ambiguous, or contradicted by another final-answer claim, set answer_correct=false and accuracy=0.
+   * If the final answer is wrong, it is incorrect even if the explanation seems to imply the right answer.
+
+2. Ignore harmless differences in casing, punctuation, formatting, wording, date format, units, or equivalent aliases.
+
+3. Use reference_explanation only to check whether the model's explanation is compatible with the table evidence. The model does not need to follow the exact same reasoning path.
+
+4. Set grounded=true when:
+
+   * the final answer is correct and the explanation is absent, vague, or compatible with reference_explanation; or
+   * the model uses a different but valid reasoning path.
+
+5. Set grounded=false when:
+
+   * the final answer is correct, but the explanation gives central table facts that contradict reference_explanation, such as wrong country pairs, continent pairs, club mappings, transfer pairs, dates, counts, or joined entities.
+   * This is especially important for counterfactual data: if the model gets the right final answer but explains it using original-world or original-table facts, grounded=false.
+
+6. grounded_accuracy = 1 only when both answer_correct=true and grounded=true. Otherwise grounded_accuracy=0.
+
+Examples:
+
+* Final answer wrong, explanation implies correct answer → answer_correct=false, grounded_accuracy=0.
+* Final answer correct, no explanation → answer_correct=true, grounded=true.
+* Final answer correct, different compatible reasoning path → answer_correct=true, grounded=true.
+* Final answer correct, explanation uses contradictory table facts → answer_correct=true, grounded=false.
+
+    """
+    user_payload = {
+        "question": question,
+        "reference_answer": reference_answer,
+        "reference_explanation": reference_explanation,
+        "reference_explanation_is_null": reference_explanation_is_null,
+        "model_response": model_response,
+    }
+    response = client.chat.completions.create(
+        model=evaluator_model,
+        response_format={"type": "json_object"},
+        temperature=temperature,
+        seed=seed,
         messages=[
             {"role": "system", "content": rubric},
             {"role": "user", "content": json.dumps(user_payload, ensure_ascii=False)},
@@ -671,26 +882,60 @@ def run_evaluation(args: argparse.Namespace, level: str, records: list[dict[str,
             or question_record.get("answer")
             or ""
         )
+        reference_explanation_value = result.get(
+            "reference_explanation",
+            question_record.get("explanation"),
+        )
+        reference_explanation = str(reference_explanation_value or "")
+        reference_explanation_is_null = is_null_reference_explanation(
+            reference_explanation_value
+        )
+        gold_full_answer = str(
+            result.get("reference_full_answer")
+            or build_gold_full_answer(reference_answer, reference_explanation)
+        )
         model_answer = str(result.get("model_answer") or "")
 
-        grade = evaluate_with_openai(
-            client=client,
-            evaluator_model=args.evaluator_model,
-            question=question,
-            reference_answer=reference_answer,
-            model_answer=model_answer,
-        )
+        if args.evaluation_target == "answer":
+            grade = evaluate_with_openai(
+                client=client,
+                evaluator_model=args.evaluator_model,
+                question=question,
+                reference_answer=reference_answer,
+                model_answer=model_answer,
+                temperature=args.temperature,
+                seed=args.seed,
+            )
+        else:
+            grade = evaluate_full_answer_with_openai(
+                client=client,
+                evaluator_model=args.evaluator_model,
+                question=question,
+                reference_answer=reference_answer,
+                reference_explanation=reference_explanation,
+                reference_explanation_is_null=reference_explanation_is_null,
+                model_response=model_answer,
+                temperature=args.temperature,
+                seed=args.seed,
+            )
         payload = {
             "level": level,
             "question_id": question_id,
             "question": question,
             "reference_answer": reference_answer,
+            "reference_explanation": reference_explanation,
+            "reference_explanation_is_null": reference_explanation_is_null,
+            "gold_full_answer": gold_full_answer,
+            "model_response": model_answer,
             "model_answer": model_answer,
+            "evaluation_target": args.evaluation_target,
             "result_file": str(result_path),
             "generator_backend": result.get("generator_backend"),
             "generator_model": result.get("generator_model"),
             "model_dir": model_dir,
             "evaluator_model": args.evaluator_model,
+            "temperature": args.temperature,
+            "seed": args.seed,
             **grade,
         }
         write_json(evaluation_path, payload)
@@ -759,7 +1004,7 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "--num-rows",
         type=int,
-        default=10,
+        default=20,
         help="Total row budget n for each question prompt.",
     )
     parser.add_argument(
@@ -768,11 +1013,22 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         default="first",
         help="How to choose non-ground-truth rows before restoring CSV order.",
     )
-    parser.add_argument("--seed", type=int, default=0)
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=DEFAULT_RANDOM_SEED,
+        help="Fixed random seed for row sampling and model calls that support seeds.",
+    )
+    parser.add_argument(
+        "--temperature",
+        type=float,
+        default=DEFAULT_TEMPERATURE,
+        help="Sampling temperature for OpenAI generation/evaluation calls. Defaults to 0.",
+    )
     parser.add_argument(
         "--generator-backend",
         "--generator",
-        choices=["openai", "llama"],
+        choices=["openai", "gemini", "llama"],
         default=None,
         help="Generation backend. Defaults to llama.",
     )
@@ -781,13 +1037,23 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         "--generator-model",
         dest="generator_model",
         default=None,
-        help="Model id for answer generation. Defaults to Llama 3.2 1B for llama or gpt-5.4-mini for openai.",
+        help=(
+            "Model id for answer generation. Defaults to "
+            f"{DEFAULT_LLAMA_MODEL} for llama, {DEFAULT_GEMINI_MODEL} for gemini, "
+            f"or {DEFAULT_OPENAI_MODEL} for openai. "
+            "Gemini aliases: "
+            + ", ".join(f"{alias}={model_id}" for alias, model_id in GEMINI_MODELS.items())
+            + ". "
+            "Hugging Face aliases: "
+            + ", ".join(f"{alias}={model_id}" for alias, model_id in LLAMA_MODELS.items())
+            + "."
+        ),
     )
     parser.add_argument("--gpt-model", dest="generator_model", help=argparse.SUPPRESS)
     parser.add_argument(
         "--llama-model",
         default=None,
-        help="Hugging Face model id or local path for Llama generation. Passing this without --model selects the llama backend.",
+        help="Hugging Face model id or local path for the llama/HF backend. Passing this without --model selects the llama backend.",
     )
     parser.add_argument(
         "--model-dir",
@@ -795,6 +1061,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         help="Directory name to use under results/ and evaluation/. Defaults to the model id slug.",
     )
     parser.add_argument("--evaluator-model", default=DEFAULT_EVALUATOR_MODEL)
+    parser.add_argument(
+        "--evaluation-target",
+        choices=["full", "answer"],
+        default="full",
+        help="Evaluate the combined answer-plus-explanation gold target, or the legacy answer-only target.",
+    )
     parser.add_argument(
         "--question-id",
         action="append",
@@ -828,17 +1100,24 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
             "llama" if args.llama_model and args.generator_model is None else DEFAULT_GENERATOR_BACKEND
         )
     if args.generator_model is None:
-        args.generator_model = (
-            args.llama_model or DEFAULT_LLAMA_MODEL
-            if args.generator_backend == "llama"
-            else DEFAULT_OPENAI_MODEL
-        )
+        if args.generator_backend == "llama":
+            args.generator_model = args.llama_model or DEFAULT_LLAMA_MODEL
+        elif args.generator_backend == "gemini":
+            args.generator_model = DEFAULT_GEMINI_MODEL
+        else:
+            args.generator_model = DEFAULT_OPENAI_MODEL
     args.generator_model = normalize_model_id(
         args.generator_model,
-        lowercase=args.generator_backend == "openai",
+        lowercase=args.generator_backend in {"gemini", "openai"},
     )
+    if args.generator_backend == "llama":
+        args.generator_model = resolve_llama_model_id(args.generator_model)
+    elif args.generator_backend == "gemini":
+        args.generator_model = resolve_gemini_model_id(args.generator_model)
     if args.num_rows <= 0:
         parser.error("--num-rows must be positive")
+    if args.temperature < 0:
+        parser.error("--temperature must be non-negative")
     if args.max_questions is not None and args.max_questions <= 0:
         parser.error("--max-questions must be positive")
     return args

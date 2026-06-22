@@ -1,11 +1,10 @@
-# Scope 3 
+# Scope 3
 # transfers + clubs
-transfers.player_name: Abdoulay Diaby, transfers.transfer_season: 24/25, countries.country_name: Türkiye
+transfers.player_id: 283233, transfers.player_name: Jacob Rasmussen, transfers.transfer_date: 2025-06-09, transfers.from_club_id: 206, transfers.to_club_id: 409, transfers.from_club_name: Brøndby IF, transfers.to_club_name: Salzburg, transfer_season: 25/26, target_date: 2025-06-09, countries.country_name: Austria, countries.continent: Europe, countries.capital_city: Vienna, countries.confederation: europa, clubs.stadium_seats: 20000, stadium_name: Red Bull Arena Salzburg
 
 
 # transfers + clubs + countries
-transfers.player_name: Abdoulay Diaby,countries.continent: Asia
-
+transfers.player_id: 283233, transfers.player_name: Jacob Rasmussen, transfers.transfer_date: 2025-06-09, transfers.from_club_id: 206, transfers.to_club_id: 409, transfers.from_club_name: Brøndby IF, transfers.to_club_name: Salzburg, transfer_season: 25/26, target_date: 2025-06-09, countries.country_name: Austria, countries.continent: Europe, countries.capital_city: Vienna, countries.confederation: europa, clubs.stadium_seats: 30188, stadium_name: Red Bull Arena Salzburg
 
 
 # game_events + players + clubs + countries
@@ -15,36 +14,19 @@ game_events.game_id: 4126775, game_events.type: Substitutions, countries.contine
 # game_events + players + clubs
 game_events.game_id: 4126775, game_events.type: Substitutions, countries.continent: Europe, countries.country_name: France
 
-# Scope 4 
-# transfers + clubs
-target_date: 2024-05-07, transfers.player_name: Abdoulay Diaby, countries.country_name: France, clubs.stadium_seats: 13797
 
-# transfers + clubs + countries
-target_date: 2024-05-07, transfers.player_name: Abdoulay Diaby, countries.continent: Europe, countries.confederation: europa, countries.capital_city: Paris
-
-
+# Scope 4
 # transfers + clubs + competitions
-target_date: 2024-05-07, transfers.player_name: Abdoulay Diaby
-
-
+transfers.player_id: 283233, transfers.player_name: Jacob Rasmussen, transfers.transfer_date: 2025-06-09, transfers.from_club_id: 206, transfers.to_club_id: 409, transfers.from_club_name: Brøndby IF, transfers.to_club_name: Salzburg, transfer_season: 25/26, target_date: 2025-06-09, countries.country_name: Austria, countries.continent: Europe, countries.capital_city: Vienna, countries.confederation: europa, clubs.stadium_seats: 30188, stadium_name: Red Bull Arena Salzburg
 
 
 # transfers + clubs + players + countries
-target_date: 2024-05-07, transfers.player_name: Abdoulay Diaby
-
-
-
-# transfers + clubs
-transfers.player_name: Abdoulay Diaby, transfers.transfer_date: 2024-07-01
+transfers.player_id: 283233, transfers.player_name: Jacob Rasmussen, transfers.transfer_date: 2025-06-09, transfers.from_club_id: 206, transfers.to_club_id: 409, transfers.from_club_name: Brøndby IF, transfers.to_club_name: Salzburg, transfer_season: 25/26, target_date: 2025-06-09, countries.country_name: Austria, countries.continent: Europe, countries.capital_city: Vienna, countries.confederation: europa, clubs.stadium_seats: 30188, stadium_name: Red Bull Arena Salzburg
 
 
 # transfers + appearance + players
-transfers.player_name: Abdoulay Diaby, transfers.transfer_date: 2024-07-01, transfers.from_club_name: Pendikspor, transfers.to_club_name: Al-Batin
+transfers.player_id: 283233, transfers.player_name: Jacob Rasmussen, transfers.transfer_date: 2025-06-09, transfers.from_club_id: 206, transfers.to_club_id: 409, transfers.from_club_name: Brøndby IF, transfers.to_club_name: Salzburg, transfer_season: 25/26, target_date: 2025-06-09, countries.country_name: Austria, countries.continent: Europe, countries.capital_city: Vienna, countries.confederation: europa, clubs.stadium_seats: 30188, stadium_name: Red Bull Arena Salzburg
 
 
 # transfers + appearance + competitions
-transfers.player_name: Abdoulay Diaby, transfers.transfer_date: 2024-07-01,  transfers.to_club_name: Al-Batin
-
-
-# transfers
-transfers.player_name: Abdoulay Diaby, transfers.transfer_date: 2024-07-01,  transfers.to_club_name: Al-Batin, player_name_2: Ahmed Ildız
+transfers.player_id: 283233, transfers.player_name: Jacob Rasmussen, transfers.transfer_date: 2025-06-09, transfers.from_club_id: 206, transfers.to_club_id: 409, transfers.from_club_name: Brøndby IF, transfers.to_club_name: Salzburg, transfer_season: 25/26, target_date: 2025-06-09, countries.country_name: Austria, countries.continent: Europe, countries.capital_city: Vienna, countries.confederation: europa, clubs.stadium_seats: 30188, stadium_name: Red Bull Arena Salzburg

@@ -382,6 +382,71 @@ def _fill_template(
     return question, placeholder_provenance
 
 
+def _explanation_value(value: object) -> str:
+    text = "" if value is None else str(value)
+    return text if text != "" else "NULL"
+
+
+def _row_label(table: str, row: dict[str, str]) -> str:
+    id_column = TABLE_ID_COLUMNS[table]
+    return f"{table}[{id_column}={_explanation_value(row.get(id_column, ''))}]"
+
+
+def _append_unique(values: list[str], value: str) -> None:
+    if value not in values:
+        values.append(value)
+
+
+def _explanation_attributes(
+    context: Level2Context,
+    template_id: int,
+    source_table: str,
+    source_attribute: str,
+) -> dict[str, list[str]]:
+    attributes: dict[str, list[str]] = {}
+    for table, attribute in _template_attribute_paths(context, template_id):
+        _append_unique(attributes.setdefault(table, []), attribute)
+    _append_unique(attributes.setdefault(source_table, []), source_attribute)
+    return attributes
+
+
+def _default_explanation(
+    context: Level2Context,
+    template_id: int,
+    ground_truth_rows: list[tuple[str, dict[str, str]]],
+    source_table: str,
+    source_row: dict[str, str],
+    source_attribute: str,
+) -> str:
+    attributes = _explanation_attributes(
+        context,
+        template_id,
+        source_table,
+        source_attribute,
+    )
+    sentences: list[str] = []
+    seen_rows: set[tuple[str, str, str]] = set()
+    for table, row in ground_truth_rows:
+        id_column = TABLE_ID_COLUMNS[table]
+        row_key = (table, id_column, str(row.get(id_column, "")))
+        if row_key in seen_rows:
+            continue
+        seen_rows.add(row_key)
+        values = [
+            f"{attribute}={_explanation_value(row.get(attribute, ''))}"
+            for attribute in attributes.get(table, [])
+            if attribute in row
+        ]
+        if values:
+            sentences.append(f"{_row_label(table, row)} has {', '.join(values)}")
+    if not sentences:
+        sentences.append(
+            f"{source_table}.{source_attribute} is "
+            f"{_explanation_value(source_row.get(source_attribute, ''))}"
+        )
+    return ". ".join(sentences) + "."
+
+
 def _record(
     context: Level2Context,
     template_id: int,
@@ -392,6 +457,7 @@ def _record(
     source_row: dict[str, str],
     source_attribute: str,
     default_table: str | None = None,
+    explanation: str | None = None,
 ) -> dict[str, object]:
     template = context.templates[template_id]
     question, placeholders = _fill_template(template["question"], fill_rows, default_table)
@@ -399,6 +465,14 @@ def _record(
         "template_question_id": template_id,
         "question": question,
         "answer": str(answer),
+        "explanation": explanation or _default_explanation(
+            context,
+            template_id,
+            ground_truth_rows,
+            source_table,
+            source_row,
+            source_attribute,
+        ),
         "ground_truth": {
             "rows": _dedupe_row_refs(ground_truth_rows),
             "placeholders": placeholders,
@@ -1399,7 +1473,7 @@ def generate_level_2_questions(
             raise KeyError(f"No level 2 generator function for template {template_id}")
         for seed in seeds_by_table[tables_key]:
             record = QUESTION_FUNCTIONS[template_id](context, seed)
-            records.append({"question_id": len(records), **record})
+            records.append({"question_id": len(records), "level": "level_2", **record})
     return records
 
 
